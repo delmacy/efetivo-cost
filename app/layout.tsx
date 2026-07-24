@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { AppShell } from "./components/app-shell";
 import "./globals.css";
 import "./forms.css";
 import "./calendar-extra.css";
+import "./shell.css";
+import "./list-view.css";
 
 export const metadata: Metadata = {
   title: "Efetivo COST",
@@ -11,7 +14,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }
