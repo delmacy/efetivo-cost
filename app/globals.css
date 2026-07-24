@@ -1,0 +1,108 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f4f6f9;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #f4f6f9; }
+button { font: inherit; }
+main { min-height: 100vh; padding: 28px; }
+
+.topbar, .toolbar, .pending-panel, .mobile-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.topbar { margin-bottom: 24px; }
+h1, h2, p { margin-top: 0; }
+h1 { margin-bottom: 0; font-size: clamp(1.7rem, 3vw, 2.4rem); }
+h2 { margin-bottom: 8px; }
+.eyebrow { margin-bottom: 6px; font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+.header-actions { display: flex; gap: 10px; }
+.button { border: 0; border-radius: 10px; padding: 11px 15px; font-weight: 700; cursor: pointer; }
+.button-primary { color: white; background: #173f8a; }
+.button-secondary { color: #173f8a; background: white; border: 1px solid #d7dfeb; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.summary-card { display: grid; gap: 5px; padding: 18px; border: 1px solid #dde4ee; border-radius: 14px; background: white; box-shadow: 0 6px 18px rgba(38, 50, 72, .04); }
+.summary-card span, .summary-card small { color: #64748b; }
+.summary-card strong { font-size: 1.15rem; }
+
+.toolbar { margin-bottom: 12px; }
+.segmented { display: flex; padding: 4px; border: 1px solid #dbe3ee; border-radius: 10px; background: white; }
+.segmented button { border: 0; border-radius: 7px; padding: 8px 11px; color: #526078; background: transparent; cursor: pointer; }
+.segmented button.active { color: white; background: #173f8a; }
+
+.desktop-timeline { border: 1px solid #dbe3ee; border-radius: 14px; overflow: hidden; background: white; box-shadow: 0 8px 22px rgba(38, 50, 72, .05); }
+.timeline-scroll { overflow-x: auto; }
+.timeline-grid { display: grid; grid-template-columns: 210px repeat(31, 42px); min-width: 1512px; }
+.timeline-header { position: sticky; top: 0; z-index: 5; border-bottom: 1px solid #dbe3ee; background: #f8fafc; }
+.technician-heading, .technician-cell { position: sticky; left: 0; z-index: 4; border-right: 1px solid #dbe3ee; background: white; }
+.technician-heading { padding: 15px; font-weight: 800; background: #f8fafc; }
+.day-heading { display: grid; place-items: center; min-height: 56px; border-right: 1px solid #edf1f6; font-size: .8rem; }
+.day-heading small { color: #8a97aa; }
+.timeline-row { border-bottom: 1px solid #edf1f6; }
+.timeline-row:last-child { border-bottom: 0; }
+.technician-cell { display: grid; align-content: center; gap: 3px; min-height: 76px; padding: 12px 15px; }
+.technician-cell span, .technician-cell small { color: #718096; font-size: .75rem; }
+.day-cell { display: flex; align-items: center; justify-content: center; gap: 2px; min-height: 76px; border-right: 1px solid #edf1f6; }
+.today { background: #f0f6ff; }
+.status { display: grid; place-items: center; width: 24px; height: 28px; border-radius: 7px; font-size: .7rem; font-weight: 900; }
+.status-office { color: #2459a8; background: #dbeafe; }
+.status-duty { color: #9a3412; background: #ffedd5; }
+.status-unavailable { color: #991b1b; background: #fee2e2; }
+.status-compensation { color: #166534; background: #dcfce7; }
+.status-pending { color: #854d0e; background: #fef3c7; border: 1px dashed #d79d13; }
+.status-off { color: #7b8798; background: #eef2f6; }
+
+.pending-panel { margin-top: 18px; padding: 20px; border: 1px solid #ead9a4; border-radius: 14px; background: #fffdf5; }
+.pending-panel p { margin-bottom: 0; color: #5d6675; }
+.suggestion { display: grid; gap: 4px; min-width: 230px; }
+.suggestion span, .suggestion small { color: #697386; }
+.pending-actions { display: flex; gap: 10px; }
+
+.mobile-view { display: none; }
+
+@media (max-width: 900px) {
+  main { padding: 18px; }
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pending-panel { align-items: stretch; flex-direction: column; }
+  .pending-actions { width: 100%; }
+  .pending-actions .button { flex: 1; }
+}
+
+@media (max-width: 680px) {
+  main { padding: 14px; }
+  .topbar { align-items: flex-start; }
+  .header-actions .button-secondary { display: none; }
+  .header-actions .button-primary { padding: 10px 12px; font-size: .85rem; }
+  .summary-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
+  .summary-card { padding: 13px; }
+  .summary-card strong { font-size: .98rem; }
+  .summary-card small { font-size: .72rem; }
+  .toolbar, .desktop-timeline { display: none; }
+  .mobile-view { display: block; }
+  .mobile-date { margin-bottom: 12px; padding: 14px; border: 1px solid #dbe3ee; border-radius: 13px; background: white; }
+  .mobile-date button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: #eef3f9; font-size: 1.3rem; }
+  .mobile-date div { display: grid; text-align: center; }
+  .mobile-date span { color: #718096; font-size: .78rem; text-transform: uppercase; }
+  .mobile-list { display: grid; gap: 10px; }
+  .technician-card { display: grid; gap: 12px; padding: 15px; border: 1px solid #dbe3ee; border-radius: 13px; background: white; }
+  .technician-card > div:first-child { display: grid; gap: 3px; }
+  .technician-card > div:first-child span { color: #718096; font-size: .8rem; }
+  .mobile-statuses { display: flex; flex-wrap: wrap; gap: 7px; }
+  .pill { padding: 6px 9px; border-radius: 999px; font-size: .76rem; font-weight: 800; }
+  .pill-office { color: #2459a8; background: #dbeafe; }
+  .pill-duty { color: #9a3412; background: #ffedd5; }
+  .pill-unavailable { color: #991b1b; background: #fee2e2; }
+  .pill-compensation { color: #166534; background: #dcfce7; }
+  .pill-pending { color: #854d0e; background: #fef3c7; }
+  .pill-off { color: #697386; background: #eef2f6; }
+  .technician-card footer { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid #edf1f6; color: #718096; font-size: .75rem; }
+  .pending-panel { margin-top: 12px; }
+  .suggestion { min-width: 0; }
+}
