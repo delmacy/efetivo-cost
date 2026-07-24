@@ -14,7 +14,13 @@ function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-function isOfficeDay(referenceDate: Date, date: Date) {
+function addDays(date: Date, amount: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + amount);
+  return result;
+}
+
+function isBaseOfficeDay(referenceDate: Date, date: Date) {
   const diff = Math.floor((dateOnly(date).getTime() - dateOnly(referenceDate).getTime()) / 86400000);
   return Math.abs(diff) % 2 === 0;
 }
@@ -37,14 +43,9 @@ function easterSunday(year: number) {
   return new Date(year, month - 1, day);
 }
 
-function addDays(date: Date, amount: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + amount);
-  return result;
-}
-
 function holidaysFor(year: number) {
   const easter = easterSunday(year);
+  const goodFriday = addDays(easter, -2);
   return new Map([
     [`${year}-0-1`, "Confraternização Universal"],
     [`${year}-3-21`, "Tiradentes"],
@@ -55,7 +56,7 @@ function holidaysFor(year: number) {
     [`${year}-10-15`, "Proclamação da República"],
     [`${year}-10-20`, "Consciência Negra"],
     [`${year}-11-25`, "Natal"],
-    [`${addDays(easter, -2).getFullYear()}-${addDays(easter, -2).getMonth()}-${addDays(easter, -2).getDate()}`, "Paixão de Cristo"],
+    [`${goodFriday.getFullYear()}-${goodFriday.getMonth()}-${goodFriday.getDate()}`, "Paixão de Cristo"],
   ]);
 }
 
@@ -77,7 +78,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     where: { id: Number(id) },
     include: {
       unavailabilities: { orderBy: [{ createdAt: "desc" }, { startDate: "desc" }] },
-      assignments: { where: { date: { gte: monthStart, lte: monthEnd } }, orderBy: { date: "asc" } },
+      assignments: { where: { date: { gte: addDays(monthStart, -2), lte: monthEnd } }, orderBy: { date: "asc" } },
     },
   });
 
@@ -96,12 +97,12 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     <main>
       <header className="topbar">
         <div><p className="eyebrow">Ficha individual</p><h1>{technician.name}</h1></div>
-        <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Todos os técnicos</Link><Link className="button button-primary" href={`/#nova-indisponibilidade`}>Nova indisponibilidade</Link></div>
+        <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Todos os técnicos</Link><Link className="button button-primary" href="/#nova-indisponibilidade">Nova indisponibilidade</Link></div>
       </header>
 
       <section className="summary-grid technician-summary">
         <article className="summary-card"><span>Regime</span><strong>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</strong><small>Ciclo dia sim, dia não</small></article>
-        <article className="summary-card"><span>Jornada-base</span><strong>{technician.dailyHours} horas</strong><small>Por dia de expediente</small></article>
+        <article className="summary-card"><span>Jornada-base</span><strong>{technician.dailyHours} horas</strong><small>Por dia útil de expediente</small></article>
         <article className="summary-card"><span>Indisponibilidades</span><strong>{technician.unavailabilities.length}</strong><small>Histórico completo</small></article>
         <article className="summary-card"><span>Situação</span><strong>{technician.active ? "Ativo" : "Inativo"}</strong><small>Data-base: {technician.referenceDate.toLocaleDateString("pt-BR")}</small></article>
       </section>
@@ -115,7 +116,9 @@ export default async function TechnicianPage({ params, searchParams }: { params:
 
         <div className="calendar-legend">
           <span><i className="legend-dot legend-office" />Expediente</span>
-          <span><i className="legend-dot legend-duty" />Serviço</span>
+          <span><i className="legend-dot legend-duty" />Serviço 24h</span>
+          <span><i className="legend-dot legend-exit" />Saída</span>
+          <span><i className="legend-dot legend-rest" />Descanso</span>
           <span><i className="legend-dot legend-unavailable" />Indisponibilidade</span>
           <span><i className="legend-dot legend-holiday" />Feriado</span>
           <span><i className="legend-dot legend-weekend" />Fim de semana</span>
@@ -128,8 +131,12 @@ export default async function TechnicianPage({ params, searchParams }: { params:
             const date = new Date(selectedYear, selectedMonth - 1, day);
             const weekend = date.getDay() === 0 || date.getDay() === 6;
             const holiday = holidays.get(`${selectedYear}-${selectedMonth - 1}-${day}`);
-            const office = isOfficeDay(technician.referenceDate, date);
             const assignment = technician.assignments.find((item) => isSameDay(item.date, date));
+            const previousDayAssignment = technician.assignments.find((item) => item.hours >= 24 && isSameDay(addDays(item.date, 1), date));
+            const twoDaysBeforeAssignment = technician.assignments.find((item) => item.hours >= 24 && isSameDay(addDays(item.date, 2), date));
+            const exitDay = Boolean(previousDayAssignment);
+            const restDay = Boolean(twoDaysBeforeAssignment);
+            const office = isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay;
             const unavailability = technician.unavailabilities.find((item) => item.status !== "REJECTED" && item.startDate <= new Date(selectedYear, selectedMonth - 1, day, 23, 59, 59) && item.endDate >= date);
             const past = dateOnly(date) < dateOnly(today);
             const current = isSameDay(date, today);
@@ -140,8 +147,11 @@ export default async function TechnicianPage({ params, searchParams }: { params:
                 <div className="calendar-events">
                   {office && <span className="calendar-event event-office">Expediente</span>}
                   {assignment && <span className="calendar-event event-duty">Serviço · {assignment.hours}h</span>}
+                  {exitDay && <span className="calendar-event event-exit">Saída do serviço</span>}
+                  {restDay && <span className="calendar-event event-rest">Descanso pós-serviço</span>}
                   {unavailability && <span className={`calendar-event event-unavailable ${unavailability.status === "PENDING" ? "event-pending" : ""}`} title={unavailability.reason}>{unavailability.status === "PENDING" ? "Indisp. pendente" : "Indisponível"}</span>}
                   {holiday && <small>{holiday}</small>}
+                  {weekend && !holiday && <small>Sem expediente</small>}
                 </div>
               </article>
             );
