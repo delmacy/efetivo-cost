@@ -1,0 +1,25 @@
+.capitalize { text-transform: capitalize; }
+a.button { display: inline-flex; align-items: center; text-decoration: none; }
+.form-panel, .empty-panel { margin-top: 18px; padding: 20px; border: 1px solid #dbe3ee; border-radius: 14px; background: white; }
+.form-panel > div > p:last-child { margin-bottom: 16px; color: #64748b; }
+.unavailability-form { display: grid; grid-template-columns: 1.1fr .8fr .8fr 1.8fr auto auto auto; gap: 12px; align-items: end; }
+.unavailability-form label { display: grid; gap: 6px; color: #526078; font-size: .78rem; font-weight: 700; }
+.unavailability-form input, .unavailability-form select { width: 100%; min-height: 42px; border: 1px solid #d7dfeb; border-radius: 9px; padding: 9px 10px; color: #172033; background: white; }
+.unavailability-form .check { display: flex; align-items: center; gap: 7px; min-height: 42px; white-space: nowrap; }
+.unavailability-form .check input { width: 17px; min-height: auto; }
+.empty-panel { display: grid; gap: 5px; color: #64748b; }
+.empty-panel strong { color: #172033; }
+.pending-actions form { display: flex; }
+
+@media (max-width: 1100px) {
+  .unavailability-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .reason-field { grid-column: span 3; }
+}
+
+@media (max-width: 680px) {
+  .form-panel { padding: 15px; }
+  .unavailability-form { grid-template-columns: 1fr 1fr; }
+  .unavailability-form label:first-child, .reason-field { grid-column: 1 / -1; }
+  .unavailability-form .button { grid-column: 1 / -1; justify-content: center; }
+  .header-actions { flex-shrink: 0; }
+}
