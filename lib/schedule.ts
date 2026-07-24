@@ -31,24 +31,50 @@ export async function ensureInitialData() {
   }
 }
 
-export async function getDashboard(year = 2026, month = 7) {
+export async function getDashboard(year = 2026, month = 7, months = 1) {
   await ensureInitialData();
   const from = startOfMonth(year, month);
-  const to = endOfMonth(year, month);
+  const lastMonth = new Date(year, month - 1 + Math.max(1, months), 0);
+  const to = endOfMonth(lastMonth.getFullYear(), lastMonth.getMonth() + 1);
 
-  const [technicians, assignments, unavailabilities, control, adjustments] = await Promise.all([
+  const [technicians, assignments, assignmentContext, unavailabilities, controls, adjustments] = await Promise.all([
     prisma.technician.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-    prisma.assignment.findMany({ where: { date: { gte: from, lte: to } } }),
+    prisma.assignment.findMany({
+      where: { date: { gte: from, lte: to } },
+      include: { technician: true },
+      orderBy: { date: "asc" },
+    }),
+    prisma.assignment.findMany({ where: { date: { gte: addDays(from, -2), lte: to } } }),
     prisma.unavailability.findMany({
       where: { startDate: { lte: to }, endDate: { gte: from } },
       include: { technician: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ startDate: "asc" }, { createdAt: "desc" }],
     }),
-    prisma.monthControl.findUnique({ where: { year_month: { year, month } } }),
+    prisma.monthControl.findMany({
+      where: {
+        OR: Array.from({ length: Math.max(1, months) }, (_, index) => {
+          const date = new Date(year, month - 1 + index, 1);
+          return { year: date.getFullYear(), month: date.getMonth() + 1 };
+        }),
+      },
+      orderBy: [{ year: "asc" }, { month: "asc" }],
+    }),
     prisma.workAdjustment.findMany({ where: { date: { gte: from, lte: to } } }),
   ]);
 
-  return { technicians, assignments, unavailabilities, control, adjustments, year, month };
+  return {
+    technicians,
+    assignments,
+    assignmentContext,
+    unavailabilities,
+    controls,
+    control: controls[0] ?? null,
+    adjustments,
+    year: from.getFullYear(),
+    month: from.getMonth() + 1,
+    from,
+    to,
+  };
 }
 
 export async function approveAndRecalculate(id: number) {
