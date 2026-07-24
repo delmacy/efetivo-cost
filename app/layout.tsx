@@ -5,6 +5,7 @@ import "./forms.css";
 import "./calendar-extra.css";
 import "./shell.css";
 import "./list-view.css";
+import "./dashboard.css";
 
 export const metadata: Metadata = {
   title: "Efetivo COST",
