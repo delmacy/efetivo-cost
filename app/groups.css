@@ -1,0 +1,47 @@
+.expanded-technician-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.group-selector {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 11px;
+}
+.group-selector legend { padding: 0 6px; color: #526078; font-size: .8rem; font-weight: 800; }
+.group-option { padding: 6px 9px; border-radius: 999px; background: #f1f5f9; }
+.person-group-tags { display: flex !important; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.person-group-tags b {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #475569;
+  background: #eef2f7;
+  font-size: .66rem;
+}
+.group-create-form { display: flex; align-items: end; gap: 10px; margin-top: 14px; }
+.group-create-form label { display: grid; flex: 1; gap: 6px; color: #526078; font-size: .82rem; font-weight: 700; }
+.group-create-form input { width: 100%; border: 1px solid #cfd9e7; border-radius: 9px; padding: 10px 11px; }
+.group-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.group-card { overflow: hidden; border: 1px solid #dbe3ee; border-radius: 14px; background: white; }
+.group-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px; border-bottom: 1px solid #edf1f6; background: #f8fafc; }
+.group-card > header div { display: grid; gap: 3px; }
+.group-card > header span { color: #64748b; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.group-card > header h2 { margin: 0; font-size: 1rem; }
+.group-card > header > strong { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #173f8a; background: #e8effc; }
+.group-members { display: grid; padding: 8px 14px 14px; }
+.group-members a { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 2px; border-bottom: 1px solid #edf1f6; }
+.group-members a:last-child { border-bottom: 0; }
+.group-members a:hover span { color: #173f8a; }
+.group-members small { padding: 3px 6px; border-radius: 999px; color: #166534; background: #dcfce7; font-size: .63rem; font-weight: 800; }
+.group-empty { padding: 12px 2px 4px; color: #94a3b8; font-size: .8rem; }
+
+@media (max-width: 1000px) {
+  .group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 680px) {
+  .expanded-technician-form { grid-template-columns: 1fr; }
+  .group-create-form { align-items: stretch; flex-direction: column; }
+  .group-grid { grid-template-columns: 1fr; }
+}

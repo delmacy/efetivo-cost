@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Technician {
+  id                 Int                     @id @default(autoincrement())
+  name               String                  @unique
+  participatesScale  Boolean                 @default(true)
+  participatesOnCall Boolean                 @default(true)
+  active             Boolean                 @default(true)
+  referenceDate      DateTime
+  dailyHours         Int                     @default(8)
+  assignments        Assignment[]
+  unavailabilities   Unavailability[]
+  workAdjustments    WorkAdjustment[]
+  groups             TechnicianGroupMember[]
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+}
+
+model TechnicianGroup {
+  id        Int                     @id @default(autoincrement())
+  name      String                  @unique
+  slug      String                  @unique
+  members   TechnicianGroupMember[]
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+}
+
+model TechnicianGroupMember {
+  technicianId Int
+  groupId      Int
+  isPrimary    Boolean         @default(false)
+  technician   Technician      @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  group        TechnicianGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([technicianId, groupId])
+  @@index([groupId])
+}
+
+model MonthControl {
+  id         Int      @id @default(autoincrement())
+  year       Int
+  month      Int
+  status     String   @default("OPEN")
+  cutoffDate DateTime
+  version    Int      @default(1)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([year, month])
+}
+
+model Assignment {
+  id           Int        @id @default(autoincrement())
+  date         DateTime
+  scheduleType String     @default("DUTY_24H")
+  hours        Int        @default(24)
+  technicianId Int
+  technician   Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  origin       String     @default("BASE")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([date, scheduleType])
+  @@index([scheduleType, date])
+  @@index([technicianId, date])
+}
+
+model Unavailability {
+  id                Int        @id @default(autoincrement())
+  technicianId      Int
+  technician        Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  startDate         DateTime
+  endDate           DateTime
+  reason            String
+  affectsScale      Boolean    @default(true)
+  affectsOffice     Boolean    @default(true)
+  status            String     @default("APPROVED")
+  reviewNote        String?
+  createdAt         DateTime   @default(now())
+  reviewedAt        DateTime?
+
+  @@index([technicianId, startDate, endDate])
+}
+
+model WorkAdjustment {
+  id           Int        @id @default(autoincrement())
+  technicianId Int
+  technician   Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  date         DateTime
+  type         String
+  hours        Int
+  reason       String
+  createdAt    DateTime   @default(now())
+
+  @@index([technicianId, date])
+}
