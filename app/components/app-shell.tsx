@@ -7,7 +7,7 @@ import { useState } from "react";
 const navigation = [
   { href: "/", label: "Painel", icon: "▦" },
   { href: "/tecnicos", label: "Técnicos", icon: "👥" },
-  { href: "/#nova-indisponibilidade", label: "Indisponibilidades", icon: "⊘" },
+  { href: "/#ocupacoes", label: "Ocupações", icon: "☷" },
   { href: "/#pendencias", label: "Pendências", icon: "!" },
 ];
 
