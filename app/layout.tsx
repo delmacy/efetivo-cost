@@ -8,6 +8,7 @@ import "./list-view.css";
 import "./dashboard.css";
 import "./agenda.css";
 import "./quick-actions.css";
+import "./groups.css";
 
 export const metadata: Metadata = {
   title: "Efetivo COST",
