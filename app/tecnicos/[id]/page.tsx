@@ -87,6 +87,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     include: {
       unavailabilities: { orderBy: [{ createdAt: "desc" }, { startDate: "desc" }] },
       assignments: { where: { date: { gte: addDays(monthStart, -2), lte: monthEnd } }, orderBy: { date: "asc" } },
+      workAdjustments: { where: { date: { gte: monthStart, lte: monthEnd } }, orderBy: { date: "asc" } },
     },
   });
 
@@ -106,13 +107,18 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     const assignment = technician.assignments.find((item) => isSameDay(item.date, date));
     const exitDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 1), date));
     const restDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 2), date));
-    const office = isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay;
     const unavailability = technician.unavailabilities.find((item) => item.status !== "REJECTED" && item.startDate <= new Date(selectedYear, selectedMonth - 1, day, 23, 59, 59) && item.endDate >= date);
+    const officeAdjustment = technician.workAdjustments.find((item) => item.type === "INCLUDE_OFFICE" && isSameDay(item.date, date));
+    const approvedOfficeAbsence = unavailability?.status === "APPROVED" && unavailability.affectsOffice;
+    const office = !approvedOfficeAbsence && Boolean(
+      officeAdjustment
+      || (isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay),
+    );
     const past = dateOnly(date) < dateOnly(today);
     const current = isSameDay(date, today);
     const tags: EventTag[] = [];
 
-    if (office) tags.push({ kind: "office", label: "Expediente" });
+    if (office) tags.push({ kind: "office", label: officeAdjustment ? `Expediente incluído · ${officeAdjustment.hours}h` : "Expediente", title: officeAdjustment?.reason });
     if (assignment) tags.push({ kind: "duty", label: `Serviço ${assignment.hours}h` });
     if (exitDay) tags.push({ kind: "exit", label: "Saída do serviço" });
     if (restDay) tags.push({ kind: "rest", label: "Descanso pós-serviço" });
@@ -121,7 +127,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     if (weekend) tags.push({ kind: "weekend", label: "Fim de semana" });
     if (tags.length === 0) tags.push({ kind: "off", label: "Sem expediente" });
 
-    return { day, date, weekend, holiday, assignment, exitDay, restDay, office, unavailability, past, current, tags };
+    return { day, date, weekend, holiday, assignment, exitDay, restDay, office, officeAdjustment, unavailability, past, current, tags };
   });
 
   const cells: Array<(typeof days)[number] | null> = [...Array.from({ length: leadingDays }, () => null), ...days];
@@ -131,7 +137,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     <main>
       <header className="topbar">
         <div><p className="eyebrow">Ficha individual</p><h1>{technician.name}</h1></div>
-        <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Todos os técnicos</Link><Link className="button button-primary" href="/#nova-indisponibilidade">Nova indisponibilidade</Link></div>
+        <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Todos os técnicos</Link><Link className="button button-primary" href="/">Abrir painel</Link></div>
       </header>
 
       <section className="summary-grid technician-summary">
@@ -174,13 +180,13 @@ export default async function TechnicianPage({ params, searchParams }: { params:
                 <article className={`calendar-day ${item.weekend ? "calendar-weekend" : ""} ${item.holiday ? "calendar-holiday" : ""} ${item.past ? "calendar-past" : "calendar-planned"} ${item.current ? "calendar-today" : ""}`} key={item.day}>
                   <header><strong>{item.day}</strong>{item.holiday && <span title={item.holiday}>Feriado</span>}</header>
                   <div className="calendar-events">
-                    {item.office && <span className="calendar-event event-office">Expediente</span>}
+                    {item.office && <span className="calendar-event event-office" title={item.officeAdjustment?.reason}>{item.officeAdjustment ? `Expediente incluído · ${item.officeAdjustment.hours}h` : "Expediente"}</span>}
                     {item.assignment && <span className="calendar-event event-duty">Serviço · {item.assignment.hours}h</span>}
                     {item.exitDay && <span className="calendar-event event-exit">Saída do serviço</span>}
                     {item.restDay && <span className="calendar-event event-rest">Descanso pós-serviço</span>}
                     {item.unavailability && <span className={`calendar-event event-unavailable ${item.unavailability.status === "PENDING" ? "event-pending" : ""}`} title={item.unavailability.reason}>{item.unavailability.status === "PENDING" ? "Indisp. pendente" : "Indisponível"}</span>}
                     {item.holiday && <small>{item.holiday}</small>}
-                    {item.weekend && !item.holiday && <small>Sem expediente</small>}
+                    {item.weekend && !item.holiday && !item.officeAdjustment && <small>Sem expediente</small>}
                   </div>
                 </article>
               );
@@ -191,7 +197,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
             {days.map((item) => {
               const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(item.date);
               const phase = item.current ? "Hoje" : item.past ? "Cumprido" : "Previsto";
-              const note = item.unavailability?.reason || item.holiday || (item.assignment ? `Origem: ${item.assignment.origin.toLowerCase()}` : "");
+              const note = item.unavailability?.reason || item.officeAdjustment?.reason || item.holiday || (item.assignment ? `Origem: ${item.assignment.origin.toLowerCase()}` : "");
               return (
                 <article className={`event-list-row ${item.past ? "list-past" : ""} ${item.current ? "list-today" : ""}`} key={item.day}>
                   <div className="event-list-date"><strong>{item.day}</strong><span>{new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(item.date).replace(".", "")}</span></div>
