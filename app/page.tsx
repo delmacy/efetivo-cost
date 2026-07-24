@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { approveUnavailability, createUnavailability, rejectUnavailability } from "./actions";
 import { getDashboard } from "../lib/schedule";
 
@@ -60,7 +61,7 @@ export default async function Home() {
     <main>
       <header className="topbar">
         <div><p className="eyebrow">Planejamento operacional</p><h1>Efetivo COST</h1></div>
-        <div className="header-actions"><a className="button button-secondary" href="#pendencias">Pendências <strong>{pending.length}</strong></a><a className="button button-primary" href="#nova-indisponibilidade">Nova indisponibilidade</a></div>
+        <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Técnicos</Link><a className="button button-secondary" href="#pendencias">Pendências <strong>{pending.length}</strong></a><a className="button button-primary" href="#nova-indisponibilidade">Nova indisponibilidade</a></div>
       </header>
 
       <section className="summary-grid">
@@ -83,7 +84,7 @@ export default async function Home() {
           </div>
           {technicians.map((technician) => (
             <div className="timeline-grid timeline-row" style={{ gridTemplateColumns: `210px repeat(${daysInMonth}, 42px)` }} key={technician.id}>
-              <div className="technician-cell"><strong>{technician.name}</strong><span>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</span><small>{monthlyHours(technician.id)}h · {dutyCount(technician.id)} serviços</small></div>
+              <Link className="technician-cell technician-link" href={`/tecnicos/${technician.id}`}><strong>{technician.name}</strong><span>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</span><small>{monthlyHours(technician.id)}h · {dutyCount(technician.id)} serviços</small></Link>
               {days.map((day) => <div className="day-cell" key={day}>{dayStatuses(technician.id, day).map((status, index) => <StatusMark key={`${status}-${index}`} status={status} />)}</div>)}
             </div>
           ))}
@@ -92,7 +93,7 @@ export default async function Home() {
 
       <section className="mobile-view">
         <div className="mobile-date"><button>‹</button><div><span>Visão da equipe</span><strong>Dia 24 de {monthName}</strong></div><button>›</button></div>
-        <div className="mobile-list">{technicians.map((technician) => <article className="technician-card" key={technician.id}><div><strong>{technician.name}</strong><span>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</span></div><div className="mobile-statuses">{dayStatuses(technician.id, 24).map((status, index) => <span className={`pill pill-${status}`} key={`${status}-${index}`}>{statusLabel[status]}</span>)}</div><footer><span>{monthlyHours(technician.id)}h no mês</span><span>{dutyCount(technician.id)} serviços</span></footer></article>)}</div>
+        <div className="mobile-list">{technicians.map((technician) => <Link className="technician-card" href={`/tecnicos/${technician.id}`} key={technician.id}><div><strong>{technician.name}</strong><span>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</span></div><div className="mobile-statuses">{dayStatuses(technician.id, 24).map((status, index) => <span className={`pill pill-${status}`} key={`${status}-${index}`}>{statusLabel[status]}</span>)}</div><footer><span>{monthlyHours(technician.id)}h no mês</span><span>{dutyCount(technician.id)} serviços</span></footer></Link>)}</div>
       </section>
 
       <section className="form-panel" id="nova-indisponibilidade">
