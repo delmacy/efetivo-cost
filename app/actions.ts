@@ -10,6 +10,18 @@ function parseDate(value: FormDataEntryValue | null) {
   return new Date(`${value}T12:00:00`);
 }
 
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function addDays(date: Date, amount: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + amount);
+  return result;
+}
+
 export async function createTechnician(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const referenceDate = parseDate(formData.get("referenceDate"));
@@ -52,6 +64,65 @@ export async function createUnavailability(formData: FormData) {
       status: monthControl?.status === "LOCKED" ? "PENDING" : "APPROVED",
     },
   });
+
+  revalidatePath("/");
+  revalidatePath(`/tecnicos/${technicianId}`);
+}
+
+export async function createOfficeAdjustment(formData: FormData) {
+  const technicianId = Number(formData.get("technicianId"));
+  const date = parseDate(formData.get("date"));
+  const hours = Number(formData.get("hours") || 8);
+  const reason = String(formData.get("reason") || "Convocação extraordinária").trim();
+
+  if (!technicianId || hours <= 0 || hours > 24) throw new Error("Confira o técnico, a data e as horas informadas.");
+
+  const technician = await prisma.technician.findUnique({ where: { id: technicianId } });
+  if (!technician?.active) throw new Error("Técnico inválido ou inativo.");
+
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+
+  const unavailable = await prisma.unavailability.findFirst({
+    where: {
+      technicianId,
+      status: "APPROVED",
+      affectsOffice: true,
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
+    },
+  });
+  if (unavailable) throw new Error("O técnico possui indisponibilidade de expediente aprovada nessa data.");
+
+  const nearbyAssignments = await prisma.assignment.findMany({
+    where: {
+      technicianId,
+      hours: { gte: 24 },
+      date: { gte: addDays(dayStart, -2), lte: dayEnd },
+    },
+  });
+
+  const blockedByService = nearbyAssignments.some((assignment) => (
+    isSameDay(assignment.date, date)
+    || isSameDay(addDays(assignment.date, 1), date)
+    || isSameDay(addDays(assignment.date, 2), date)
+  ));
+  if (blockedByService) throw new Error("Não é possível incluir expediente no serviço de 24h, no dia de saída ou no descanso posterior.");
+
+  const existing = await prisma.workAdjustment.findFirst({
+    where: { technicianId, type: "INCLUDE_OFFICE", date: { gte: dayStart, lte: dayEnd } },
+  });
+
+  if (existing) {
+    await prisma.workAdjustment.update({
+      where: { id: existing.id },
+      data: { date, hours, reason },
+    });
+  } else {
+    await prisma.workAdjustment.create({
+      data: { technicianId, date, type: "INCLUDE_OFFICE", hours, reason },
+    });
+  }
 
   revalidatePath("/");
   revalidatePath(`/tecnicos/${technicianId}`);
