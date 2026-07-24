@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "../../../lib/prisma";
+import { DUTY_24H, ensureInitialData, ON_CALL } from "../../../lib/schedule";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ ano?: string; mes?: string; view?: string }>;
 type ViewMode = "calendar" | "list";
-type TagKind = "office" | "duty" | "exit" | "rest" | "unavailable" | "pending" | "holiday" | "weekend" | "off";
+type TagKind = "office" | "duty" | "oncall" | "exit" | "rest" | "unavailable" | "pending" | "holiday" | "weekend" | "off";
 type EventTag = { kind: TagKind; label: string; title?: string };
 
 function dateOnly(date: Date) {
@@ -73,6 +74,7 @@ function viewHref(id: number, year: number, month: number, view: ViewMode) {
 }
 
 export default async function TechnicianPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
+  await ensureInitialData();
   const { id } = await params;
   const query = await searchParams;
   const today = new Date();
@@ -85,8 +87,9 @@ export default async function TechnicianPage({ params, searchParams }: { params:
   const technician = await prisma.technician.findUnique({
     where: { id: Number(id) },
     include: {
+      groups: { include: { group: true }, orderBy: { isPrimary: "desc" } },
       unavailabilities: { orderBy: [{ createdAt: "desc" }, { startDate: "desc" }] },
-      assignments: { where: { date: { gte: addDays(monthStart, -2), lte: monthEnd } }, orderBy: { date: "asc" } },
+      assignments: { where: { date: { gte: addDays(monthStart, -2), lte: monthEnd } }, orderBy: [{ date: "asc" }, { scheduleType: "asc" }] },
       workAdjustments: { where: { date: { gte: monthStart, lte: monthEnd } }, orderBy: { date: "asc" } },
     },
   });
@@ -104,22 +107,24 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     const date = new Date(selectedYear, selectedMonth - 1, day);
     const weekend = date.getDay() === 0 || date.getDay() === 6;
     const holiday = holidays.get(`${selectedYear}-${selectedMonth - 1}-${day}`);
-    const assignment = technician.assignments.find((item) => isSameDay(item.date, date));
-    const exitDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 1), date));
-    const restDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 2), date));
+    const dutyAssignment = technician.assignments.find((item) => item.scheduleType === DUTY_24H && isSameDay(item.date, date));
+    const onCallAssignment = technician.assignments.find((item) => item.scheduleType === ON_CALL && isSameDay(item.date, date));
+    const exitDay = technician.assignments.some((item) => item.scheduleType === DUTY_24H && isSameDay(addDays(item.date, 1), date));
+    const restDay = technician.assignments.some((item) => item.scheduleType === DUTY_24H && isSameDay(addDays(item.date, 2), date));
     const unavailability = technician.unavailabilities.find((item) => item.status !== "REJECTED" && item.startDate <= new Date(selectedYear, selectedMonth - 1, day, 23, 59, 59) && item.endDate >= date);
     const officeAdjustment = technician.workAdjustments.find((item) => item.type === "INCLUDE_OFFICE" && isSameDay(item.date, date));
     const approvedOfficeAbsence = unavailability?.status === "APPROVED" && unavailability.affectsOffice;
     const office = !approvedOfficeAbsence && Boolean(
       officeAdjustment
-      || (isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay),
+      || (isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !dutyAssignment && !exitDay && !restDay),
     );
     const past = dateOnly(date) < dateOnly(today);
     const current = isSameDay(date, today);
     const tags: EventTag[] = [];
 
     if (office) tags.push({ kind: "office", label: officeAdjustment ? `Expediente incluído · ${officeAdjustment.hours}h` : "Expediente", title: officeAdjustment?.reason });
-    if (assignment) tags.push({ kind: "duty", label: `Serviço ${assignment.hours}h` });
+    if (dutyAssignment) tags.push({ kind: "duty", label: "Serviço 24h", title: dutyAssignment.origin });
+    if (onCallAssignment) tags.push({ kind: "oncall", label: "Sobreaviso", title: onCallAssignment.origin });
     if (exitDay) tags.push({ kind: "exit", label: "Saída do serviço" });
     if (restDay) tags.push({ kind: "rest", label: "Descanso pós-serviço" });
     if (unavailability) tags.push({ kind: unavailability.status === "PENDING" ? "pending" : "unavailable", label: unavailability.status === "PENDING" ? "Indisponibilidade pendente" : "Indisponível", title: unavailability.reason });
@@ -127,24 +132,27 @@ export default async function TechnicianPage({ params, searchParams }: { params:
     if (weekend) tags.push({ kind: "weekend", label: "Fim de semana" });
     if (tags.length === 0) tags.push({ kind: "off", label: "Sem expediente" });
 
-    return { day, date, weekend, holiday, assignment, exitDay, restDay, office, officeAdjustment, unavailability, past, current, tags };
+    return { day, date, weekend, holiday, dutyAssignment, onCallAssignment, exitDay, restDay, office, officeAdjustment, unavailability, past, current, tags };
   });
 
   const cells: Array<(typeof days)[number] | null> = [...Array.from({ length: leadingDays }, () => null), ...days];
   while (cells.length % 7 !== 0) cells.push(null);
 
+  const groupNames = technician.groups.map((membership) => membership.group.name);
+  const regime = [technician.participatesScale ? "24h" : "", technician.participatesOnCall ? "Sobreaviso" : "", "Expediente"].filter(Boolean).join(" + ");
+
   return (
     <main>
       <header className="topbar">
-        <div><p className="eyebrow">Ficha individual</p><h1>{technician.name}</h1></div>
+        <div><p className="eyebrow">Ficha individual</p><h1>{technician.name}</h1><div className="person-group-tags">{groupNames.map((group) => <b key={group}>{group}</b>)}</div></div>
         <div className="header-actions"><Link className="button button-secondary" href="/tecnicos">Todos os técnicos</Link><Link className="button button-primary" href="/">Abrir painel</Link></div>
       </header>
 
       <section className="summary-grid technician-summary">
-        <article className="summary-card"><span>Regime</span><strong>{technician.participatesScale ? "Escala + expediente" : "Expediente"}</strong><small>Ciclo dia sim, dia não</small></article>
-        <article className="summary-card"><span>Jornada-base</span><strong>{technician.dailyHours} horas</strong><small>Por dia útil de expediente</small></article>
+        <article className="summary-card"><span>Regime</span><strong>{regime}</strong><small>Ciclo de expediente dia sim, dia não</small></article>
+        <article className="summary-card"><span>Especialidades</span><strong>{groupNames.length || 0} grupo(s)</strong><small>{groupNames.join(" · ") || "Sem grupo cadastrado"}</small></article>
         <article className="summary-card"><span>Indisponibilidades</span><strong>{technician.unavailabilities.length}</strong><small>Histórico completo</small></article>
-        <article className="summary-card"><span>Situação</span><strong>{technician.active ? "Ativo" : "Inativo"}</strong><small>Data-base: {technician.referenceDate.toLocaleDateString("pt-BR")}</small></article>
+        <article className="summary-card"><span>Situação</span><strong>{technician.active ? "Ativo" : "Inativo"}</strong><small>{technician.dailyHours}h · data-base {technician.referenceDate.toLocaleDateString("pt-BR")}</small></article>
       </section>
 
       <section className="calendar-panel">
@@ -164,6 +172,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
         <div className="calendar-legend">
           <span><i className="legend-dot legend-office" />Expediente</span>
           <span><i className="legend-dot legend-duty" />Serviço 24h</span>
+          <span><i className="legend-dot legend-oncall" />Sobreaviso</span>
           <span><i className="legend-dot legend-exit" />Saída</span>
           <span><i className="legend-dot legend-rest" />Descanso</span>
           <span><i className="legend-dot legend-unavailable" />Indisponibilidade</span>
@@ -181,12 +190,13 @@ export default async function TechnicianPage({ params, searchParams }: { params:
                   <header><strong>{item.day}</strong>{item.holiday && <span title={item.holiday}>Feriado</span>}</header>
                   <div className="calendar-events">
                     {item.office && <span className="calendar-event event-office" title={item.officeAdjustment?.reason}>{item.officeAdjustment ? `Expediente incluído · ${item.officeAdjustment.hours}h` : "Expediente"}</span>}
-                    {item.assignment && <span className="calendar-event event-duty">Serviço · {item.assignment.hours}h</span>}
+                    {item.dutyAssignment && <span className="calendar-event event-duty">Serviço 24h</span>}
+                    {item.onCallAssignment && <span className="calendar-event event-oncall">Sobreaviso</span>}
                     {item.exitDay && <span className="calendar-event event-exit">Saída do serviço</span>}
                     {item.restDay && <span className="calendar-event event-rest">Descanso pós-serviço</span>}
                     {item.unavailability && <span className={`calendar-event event-unavailable ${item.unavailability.status === "PENDING" ? "event-pending" : ""}`} title={item.unavailability.reason}>{item.unavailability.status === "PENDING" ? "Indisp. pendente" : "Indisponível"}</span>}
                     {item.holiday && <small>{item.holiday}</small>}
-                    {item.weekend && !item.holiday && !item.officeAdjustment && <small>Sem expediente</small>}
+                    {item.weekend && !item.holiday && !item.officeAdjustment && <small>Fim de semana</small>}
                   </div>
                 </article>
               );
@@ -197,7 +207,8 @@ export default async function TechnicianPage({ params, searchParams }: { params:
             {days.map((item) => {
               const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(item.date);
               const phase = item.current ? "Hoje" : item.past ? "Cumprido" : "Previsto";
-              const note = item.unavailability?.reason || item.officeAdjustment?.reason || item.holiday || (item.assignment ? `Origem: ${item.assignment.origin.toLowerCase()}` : "");
+              const assignment = item.dutyAssignment ?? item.onCallAssignment;
+              const note = item.unavailability?.reason || item.officeAdjustment?.reason || item.holiday || (assignment ? `Origem: ${assignment.origin.toLowerCase()}` : "");
               return (
                 <article className={`event-list-row ${item.past ? "list-past" : ""} ${item.current ? "list-today" : ""}`} key={item.day}>
                   <div className="event-list-date"><strong>{item.day}</strong><span>{new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(item.date).replace(".", "")}</span></div>
