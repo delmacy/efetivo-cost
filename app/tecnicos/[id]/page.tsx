@@ -4,7 +4,10 @@ import { prisma } from "../../../lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Promise<{ ano?: string; mes?: string }>;
+type SearchParams = Promise<{ ano?: string; mes?: string; view?: string }>;
+type ViewMode = "calendar" | "list";
+type TagKind = "office" | "duty" | "exit" | "rest" | "unavailable" | "pending" | "holiday" | "weekend" | "off";
+type EventTag = { kind: TagKind; label: string; title?: string };
 
 function dateOnly(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -60,9 +63,13 @@ function holidaysFor(year: number) {
   ]);
 }
 
-function monthHref(id: number, year: number, month: number) {
+function monthHref(id: number, year: number, month: number, view: ViewMode) {
   const date = new Date(year, month - 1, 1);
-  return `/tecnicos/${id}?ano=${date.getFullYear()}&mes=${date.getMonth() + 1}`;
+  return `/tecnicos/${id}?ano=${date.getFullYear()}&mes=${date.getMonth() + 1}&view=${view}`;
+}
+
+function viewHref(id: number, year: number, month: number, view: ViewMode) {
+  return `/tecnicos/${id}?ano=${year}&mes=${month}&view=${view}`;
 }
 
 export default async function TechnicianPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
@@ -71,6 +78,7 @@ export default async function TechnicianPage({ params, searchParams }: { params:
   const today = new Date();
   const selectedYear = Number(query.ano) || today.getFullYear();
   const selectedMonth = Math.min(12, Math.max(1, Number(query.mes) || today.getMonth() + 1));
+  const view: ViewMode = query.view === "list" ? "list" : "calendar";
   const monthStart = new Date(selectedYear, selectedMonth - 1, 1);
   const monthEnd = new Date(selectedYear, selectedMonth, 0, 23, 59, 59);
 
@@ -86,12 +94,38 @@ export default async function TechnicianPage({ params, searchParams }: { params:
 
   const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
   const leadingDays = monthStart.getDay();
-  const cells = Array.from({ length: leadingDays + daysInMonth }, (_, index) => index < leadingDays ? null : index - leadingDays + 1);
-  while (cells.length % 7 !== 0) cells.push(null);
-
   const holidays = holidaysFor(selectedYear);
   const periodKind = monthEnd < dateOnly(today) ? "Cumprido" : monthStart > new Date(today.getFullYear(), today.getMonth(), 1) ? "Previsto" : "Em andamento";
   const monthLabel = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(monthStart);
+
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = new Date(selectedYear, selectedMonth - 1, day);
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const holiday = holidays.get(`${selectedYear}-${selectedMonth - 1}-${day}`);
+    const assignment = technician.assignments.find((item) => isSameDay(item.date, date));
+    const exitDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 1), date));
+    const restDay = technician.assignments.some((item) => item.hours >= 24 && isSameDay(addDays(item.date, 2), date));
+    const office = isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay;
+    const unavailability = technician.unavailabilities.find((item) => item.status !== "REJECTED" && item.startDate <= new Date(selectedYear, selectedMonth - 1, day, 23, 59, 59) && item.endDate >= date);
+    const past = dateOnly(date) < dateOnly(today);
+    const current = isSameDay(date, today);
+    const tags: EventTag[] = [];
+
+    if (office) tags.push({ kind: "office", label: "Expediente" });
+    if (assignment) tags.push({ kind: "duty", label: `Serviço ${assignment.hours}h` });
+    if (exitDay) tags.push({ kind: "exit", label: "Saída do serviço" });
+    if (restDay) tags.push({ kind: "rest", label: "Descanso pós-serviço" });
+    if (unavailability) tags.push({ kind: unavailability.status === "PENDING" ? "pending" : "unavailable", label: unavailability.status === "PENDING" ? "Indisponibilidade pendente" : "Indisponível", title: unavailability.reason });
+    if (holiday) tags.push({ kind: "holiday", label: "Feriado", title: holiday });
+    if (weekend) tags.push({ kind: "weekend", label: "Fim de semana" });
+    if (tags.length === 0) tags.push({ kind: "off", label: "Sem expediente" });
+
+    return { day, date, weekend, holiday, assignment, exitDay, restDay, office, unavailability, past, current, tags };
+  });
+
+  const cells: Array<(typeof days)[number] | null> = [...Array.from({ length: leadingDays }, () => null), ...days];
+  while (cells.length % 7 !== 0) cells.push(null);
 
   return (
     <main>
@@ -108,10 +142,17 @@ export default async function TechnicianPage({ params, searchParams }: { params:
       </section>
 
       <section className="calendar-panel">
-        <div className="calendar-toolbar">
-          <Link className="calendar-arrow" href={monthHref(technician.id, selectedYear, selectedMonth - 1)} aria-label="Mês anterior">‹</Link>
-          <div><p className="eyebrow">Agenda individual</p><h2 className="capitalize">{monthLabel}</h2><span className={`period-badge period-${periodKind === "Cumprido" ? "past" : periodKind === "Previsto" ? "future" : "current"}`}>{periodKind}</span></div>
-          <Link className="calendar-arrow" href={monthHref(technician.id, selectedYear, selectedMonth + 1)} aria-label="Próximo mês">›</Link>
+        <div className="calendar-header-row">
+          <div className="calendar-toolbar">
+            <Link className="calendar-arrow" href={monthHref(technician.id, selectedYear, selectedMonth - 1, view)} aria-label="Mês anterior">‹</Link>
+            <div><p className="eyebrow">Agenda individual</p><h2 className="capitalize">{monthLabel}</h2><span className={`period-badge period-${periodKind === "Cumprido" ? "past" : periodKind === "Previsto" ? "future" : "current"}`}>{periodKind}</span></div>
+            <Link className="calendar-arrow" href={monthHref(technician.id, selectedYear, selectedMonth + 1, view)} aria-label="Próximo mês">›</Link>
+          </div>
+
+          <div className="view-switcher" aria-label="Tipo de visualização">
+            <Link className={view === "calendar" ? "active" : ""} href={viewHref(technician.id, selectedYear, selectedMonth, "calendar")}>▦ Calendário</Link>
+            <Link className={view === "list" ? "active" : ""} href={viewHref(technician.id, selectedYear, selectedMonth, "list")}>☷ Lista</Link>
+          </div>
         </div>
 
         <div className="calendar-legend">
@@ -124,39 +165,47 @@ export default async function TechnicianPage({ params, searchParams }: { params:
           <span><i className="legend-dot legend-weekend" />Fim de semana</span>
         </div>
 
-        <div className="month-calendar">
-          {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((weekday) => <div className="calendar-weekday" key={weekday}>{weekday}</div>)}
-          {cells.map((day, index) => {
-            if (!day) return <div className="calendar-day calendar-empty" key={`empty-${index}`} />;
-            const date = new Date(selectedYear, selectedMonth - 1, day);
-            const weekend = date.getDay() === 0 || date.getDay() === 6;
-            const holiday = holidays.get(`${selectedYear}-${selectedMonth - 1}-${day}`);
-            const assignment = technician.assignments.find((item) => isSameDay(item.date, date));
-            const previousDayAssignment = technician.assignments.find((item) => item.hours >= 24 && isSameDay(addDays(item.date, 1), date));
-            const twoDaysBeforeAssignment = technician.assignments.find((item) => item.hours >= 24 && isSameDay(addDays(item.date, 2), date));
-            const exitDay = Boolean(previousDayAssignment);
-            const restDay = Boolean(twoDaysBeforeAssignment);
-            const office = isBaseOfficeDay(technician.referenceDate, date) && !weekend && !holiday && !assignment && !exitDay && !restDay;
-            const unavailability = technician.unavailabilities.find((item) => item.status !== "REJECTED" && item.startDate <= new Date(selectedYear, selectedMonth - 1, day, 23, 59, 59) && item.endDate >= date);
-            const past = dateOnly(date) < dateOnly(today);
-            const current = isSameDay(date, today);
-
-            return (
-              <article className={`calendar-day ${weekend ? "calendar-weekend" : ""} ${holiday ? "calendar-holiday" : ""} ${past ? "calendar-past" : "calendar-planned"} ${current ? "calendar-today" : ""}`} key={day}>
-                <header><strong>{day}</strong>{holiday && <span title={holiday}>Feriado</span>}</header>
-                <div className="calendar-events">
-                  {office && <span className="calendar-event event-office">Expediente</span>}
-                  {assignment && <span className="calendar-event event-duty">Serviço · {assignment.hours}h</span>}
-                  {exitDay && <span className="calendar-event event-exit">Saída do serviço</span>}
-                  {restDay && <span className="calendar-event event-rest">Descanso pós-serviço</span>}
-                  {unavailability && <span className={`calendar-event event-unavailable ${unavailability.status === "PENDING" ? "event-pending" : ""}`} title={unavailability.reason}>{unavailability.status === "PENDING" ? "Indisp. pendente" : "Indisponível"}</span>}
-                  {holiday && <small>{holiday}</small>}
-                  {weekend && !holiday && <small>Sem expediente</small>}
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        {view === "calendar" ? (
+          <div className="month-calendar">
+            {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((weekday) => <div className="calendar-weekday" key={weekday}>{weekday}</div>)}
+            {cells.map((item, index) => {
+              if (!item) return <div className="calendar-day calendar-empty" key={`empty-${index}`} />;
+              return (
+                <article className={`calendar-day ${item.weekend ? "calendar-weekend" : ""} ${item.holiday ? "calendar-holiday" : ""} ${item.past ? "calendar-past" : "calendar-planned"} ${item.current ? "calendar-today" : ""}`} key={item.day}>
+                  <header><strong>{item.day}</strong>{item.holiday && <span title={item.holiday}>Feriado</span>}</header>
+                  <div className="calendar-events">
+                    {item.office && <span className="calendar-event event-office">Expediente</span>}
+                    {item.assignment && <span className="calendar-event event-duty">Serviço · {item.assignment.hours}h</span>}
+                    {item.exitDay && <span className="calendar-event event-exit">Saída do serviço</span>}
+                    {item.restDay && <span className="calendar-event event-rest">Descanso pós-serviço</span>}
+                    {item.unavailability && <span className={`calendar-event event-unavailable ${item.unavailability.status === "PENDING" ? "event-pending" : ""}`} title={item.unavailability.reason}>{item.unavailability.status === "PENDING" ? "Indisp. pendente" : "Indisponível"}</span>}
+                    {item.holiday && <small>{item.holiday}</small>}
+                    {item.weekend && !item.holiday && <small>Sem expediente</small>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="event-list">
+            {days.map((item) => {
+              const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(item.date);
+              const phase = item.current ? "Hoje" : item.past ? "Cumprido" : "Previsto";
+              const note = item.unavailability?.reason || item.holiday || (item.assignment ? `Origem: ${item.assignment.origin.toLowerCase()}` : "");
+              return (
+                <article className={`event-list-row ${item.past ? "list-past" : ""} ${item.current ? "list-today" : ""}`} key={item.day}>
+                  <div className="event-list-date"><strong>{item.day}</strong><span>{new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(item.date).replace(".", "")}</span></div>
+                  <div className="event-list-weekday"><strong className="capitalize">{weekday}</strong><span>{item.date.toLocaleDateString("pt-BR")}</span></div>
+                  <div className="event-tags">
+                    {item.tags.map((tag, index) => <span className={`event-tag tag-${tag.kind}`} title={tag.title} key={`${tag.kind}-${index}`}>{tag.label}</span>)}
+                    <span className={`event-tag tag-period ${item.current ? "tag-period-current" : !item.past ? "tag-period-future" : ""}`}>{phase}</span>
+                  </div>
+                  <span className="event-list-note">{note}</span>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
     </main>
   );
