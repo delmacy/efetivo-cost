@@ -7,24 +7,6 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-enum MonthStatus {
-  OPEN
-  LOCKED
-}
-
-enum UnavailabilityStatus {
-  APPROVED
-  PENDING
-  REJECTED
-}
-
-enum AssignmentOrigin {
-  BASE
-  RECALCULATED
-  MANUAL
-  SWAP
-}
-
 model Technician {
   id                Int                  @id @default(autoincrement())
   name              String
@@ -40,43 +22,43 @@ model Technician {
 }
 
 model MonthControl {
-  id         Int         @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   year       Int
   month      Int
-  status     MonthStatus @default(OPEN)
+  status     String   @default("OPEN")
   cutoffDate DateTime
-  version    Int         @default(1)
-  updatedAt  DateTime    @updatedAt
+  version    Int      @default(1)
+  updatedAt  DateTime @updatedAt
 
   @@unique([year, month])
 }
 
 model Assignment {
-  id           Int              @id @default(autoincrement())
+  id           Int        @id @default(autoincrement())
   date         DateTime
-  hours        Int              @default(24)
+  hours        Int        @default(24)
   technicianId Int
-  technician   Technician       @relation(fields: [technicianId], references: [id], onDelete: Cascade)
-  origin       AssignmentOrigin @default(BASE)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  technician   Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  origin       String     @default("BASE")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@index([date])
   @@index([technicianId, date])
 }
 
 model Unavailability {
-  id                Int                  @id @default(autoincrement())
+  id                Int        @id @default(autoincrement())
   technicianId      Int
-  technician        Technician           @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  technician        Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
   startDate         DateTime
   endDate           DateTime
   reason            String
-  affectsScale      Boolean              @default(true)
-  affectsOffice     Boolean              @default(true)
-  status            UnavailabilityStatus @default(APPROVED)
+  affectsScale      Boolean    @default(true)
+  affectsOffice     Boolean    @default(true)
+  status            String     @default("APPROVED")
   reviewNote        String?
-  createdAt         DateTime             @default(now())
+  createdAt         DateTime   @default(now())
   reviewedAt        DateTime?
 
   @@index([technicianId, startDate, endDate])
