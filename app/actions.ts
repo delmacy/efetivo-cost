@@ -22,21 +22,59 @@ function addDays(date: Date, amount: number) {
   return result;
 }
 
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export async function createTechnician(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const referenceDate = parseDate(formData.get("referenceDate"));
   const dailyHours = Number(formData.get("dailyHours") || 8);
   const participatesScale = formData.get("participatesScale") === "on";
+  const participatesOnCall = formData.get("participatesOnCall") === "on";
+  const groupIds = formData.getAll("groupIds").map(Number).filter((id) => Number.isInteger(id) && id > 0);
 
   if (!name || dailyHours <= 0) throw new Error("Confira os dados do técnico.");
 
   const technician = await prisma.technician.create({
-    data: { name, referenceDate, dailyHours, participatesScale, active: true },
+    data: {
+      name,
+      referenceDate,
+      dailyHours,
+      participatesScale,
+      participatesOnCall,
+      active: true,
+      groups: {
+        create: groupIds.map((groupId, index) => ({ groupId, isPrimary: index === 0 })),
+      },
+    },
   });
 
   revalidatePath("/");
   revalidatePath("/tecnicos");
+  revalidatePath("/grupos");
   redirect(`/tecnicos/${technician.id}`);
+}
+
+export async function createTechnicianGroup(formData: FormData) {
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Informe o nome do grupo.");
+
+  const baseSlug = slugify(name);
+  let slug = baseSlug;
+  let suffix = 2;
+  while (await prisma.technicianGroup.findUnique({ where: { slug } })) {
+    slug = `${baseSlug}-${suffix++}`;
+  }
+
+  await prisma.technicianGroup.create({ data: { name, slug } });
+  revalidatePath("/grupos");
+  revalidatePath("/tecnicos");
 }
 
 export async function createUnavailability(formData: FormData) {
@@ -97,7 +135,7 @@ export async function createOfficeAdjustment(formData: FormData) {
   const nearbyAssignments = await prisma.assignment.findMany({
     where: {
       technicianId,
-      hours: { gte: 24 },
+      scheduleType: "DUTY_24H",
       date: { gte: addDays(dayStart, -2), lte: dayEnd },
     },
   });
