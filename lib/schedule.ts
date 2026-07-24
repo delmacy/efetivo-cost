@@ -1,6 +1,11 @@
 import { addDays, endOfMonth, startOfMonth } from "./tiny-date";
 import { prisma } from "./prisma";
 
+export const DUTY_24H = "DUTY_24H";
+export const ON_CALL = "ON_CALL";
+
+type ScheduleType = typeof DUTY_24H | typeof ON_CALL;
+
 function dateOnly(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -36,34 +41,77 @@ function isUnavailableOn(
   );
 }
 
-export async function ensureInitialData() {
-  if (await prisma.technician.count()) return;
+const groupDefinitions = [
+  { name: "Telefonia", slug: "telefonia" },
+  { name: "Redes", slug: "redes" },
+  { name: "Energia", slug: "energia" },
+  { name: "Auxílios à Navegação", slug: "auxilios-navegacao" },
+  { name: "Infraestrutura", slug: "infraestrutura" },
+];
 
-  const names = ["Técnico A", "Técnico B", "Técnico C", "Técnico D"];
-  const technicians = [];
-  for (let index = 0; index < names.length; index++) {
-    technicians.push(await prisma.technician.create({
-      data: {
-        name: names[index],
-        participatesScale: index < 3,
-        referenceDate: new Date(2026, 6, index % 2 === 0 ? 1 : 2),
-      },
-    }));
+const technicianDefinitions = [
+  { name: "Técnico A", duty: true, onCall: true, groups: ["telefonia", "redes"] },
+  { name: "Técnico B", duty: true, onCall: true, groups: ["redes"] },
+  { name: "Técnico C", duty: true, onCall: true, groups: ["energia", "auxilios-navegacao"] },
+  { name: "Técnico D", duty: true, onCall: true, groups: ["auxilios-navegacao"] },
+  { name: "Técnico E", duty: true, onCall: true, groups: ["telefonia"] },
+  { name: "Técnico F", duty: true, onCall: true, groups: ["redes", "telefonia"] },
+  { name: "Técnico G", duty: true, onCall: true, groups: ["energia"] },
+  { name: "Técnico H", duty: true, onCall: true, groups: ["infraestrutura", "redes"] },
+  { name: "Técnico I", duty: false, onCall: true, groups: ["infraestrutura"] },
+  { name: "Técnico J", duty: false, onCall: true, groups: ["auxilios-navegacao", "energia"] },
+];
+
+export async function ensureInitialData() {
+  const groups = new Map<string, number>();
+  for (const definition of groupDefinitions) {
+    const group = await prisma.technicianGroup.upsert({
+      where: { slug: definition.slug },
+      update: { name: definition.name },
+      create: definition,
+    });
+    groups.set(definition.slug, group.id);
   }
 
-  await prisma.monthControl.create({
-    data: { year: 2026, month: 7, status: "LOCKED", cutoffDate: new Date(2026, 5, 25) },
-  });
-
-  const dutyDays = [4, 5, 10, 11, 16, 18, 22, 24, 29, 31];
-  for (let index = 0; index < dutyDays.length; index++) {
-    await prisma.assignment.create({
-      data: {
-        date: new Date(2026, 6, dutyDays[index]),
-        technicianId: technicians[index % 3].id,
+  for (let index = 0; index < technicianDefinitions.length; index++) {
+    const definition = technicianDefinitions[index];
+    const technician = await prisma.technician.upsert({
+      where: { name: definition.name },
+      update: {
+        active: true,
+        participatesScale: definition.duty,
+        participatesOnCall: definition.onCall,
+      },
+      create: {
+        name: definition.name,
+        active: true,
+        participatesScale: definition.duty,
+        participatesOnCall: definition.onCall,
+        referenceDate: new Date(2026, 6, index % 2 === 0 ? 1 : 2),
+        dailyHours: 8,
       },
     });
+
+    const desiredGroupIds = definition.groups.map((slug) => groups.get(slug)).filter((id): id is number => Boolean(id));
+    await prisma.technicianGroupMember.deleteMany({
+      where: { technicianId: technician.id, groupId: { notIn: desiredGroupIds } },
+    });
+
+    for (let groupIndex = 0; groupIndex < desiredGroupIds.length; groupIndex++) {
+      const groupId = desiredGroupIds[groupIndex];
+      await prisma.technicianGroupMember.upsert({
+        where: { technicianId_groupId: { technicianId: technician.id, groupId } },
+        update: { isPrimary: groupIndex === 0 },
+        create: { technicianId: technician.id, groupId, isPrimary: groupIndex === 0 },
+      });
+    }
   }
+
+  await prisma.monthControl.upsert({
+    where: { year_month: { year: 2026, month: 7 } },
+    update: {},
+    create: { year: 2026, month: 7, status: "LOCKED", cutoffDate: new Date(2026, 5, 25) },
+  });
 }
 
 async function ensureMonthControls(from: Date, to: Date) {
@@ -82,12 +130,7 @@ async function ensureMonthControls(from: Date, to: Date) {
 
     if (!existing) {
       controls.push(await prisma.monthControl.create({
-        data: {
-          year,
-          month: monthNumber,
-          cutoffDate,
-          status: mustBeLocked ? "LOCKED" : "OPEN",
-        },
+        data: { year, month: monthNumber, cutoffDate, status: mustBeLocked ? "LOCKED" : "OPEN" },
       }));
       continue;
     }
@@ -106,7 +149,7 @@ async function ensureMonthControls(from: Date, to: Date) {
 
 async function ensureProjectedSchedule(from: Date, to: Date) {
   const participants = await prisma.technician.findMany({
-    where: { active: true, participatesScale: true },
+    where: { active: true, OR: [{ participatesScale: true }, { participatesOnCall: true }] },
     orderBy: { id: "asc" },
   });
   if (participants.length === 0) return;
@@ -128,95 +171,107 @@ async function ensureProjectedSchedule(from: Date, to: Date) {
     }),
     prisma.assignment.findMany({
       where: { date: { gte: addDays(from, -2), lte: addDays(to, 2) } },
-      orderBy: { date: "asc" },
+      orderBy: [{ date: "asc" }, { scheduleType: "asc" }],
     }),
   ]);
 
   const assignments = [...storedAssignments];
 
-  function assignmentsForMonth(technicianId: number, date: Date) {
+  function eligibleFor(type: ScheduleType) {
+    return participants.filter((item) => type === DUTY_24H ? item.participatesScale : item.participatesOnCall);
+  }
+
+  function assignmentsForMonth(technicianId: number, date: Date, type: ScheduleType) {
     return assignments.filter(
       (item) => item.technicianId === technicianId
+        && item.scheduleType === type
         && item.date.getFullYear() === date.getFullYear()
         && item.date.getMonth() === date.getMonth(),
     ).length;
   }
 
-  function totalAssignments(technicianId: number) {
-    return assignments.filter((item) => item.technicianId === technicianId).length;
+  function totalAssignments(technicianId: number, type: ScheduleType) {
+    return assignments.filter((item) => item.technicianId === technicianId && item.scheduleType === type).length;
   }
 
-  function proximityPenalty(technicianId: number, date: Date) {
+  function proximityPenalty(technicianId: number, date: Date, type: ScheduleType) {
     return assignments.reduce((penalty, item) => {
-      if (item.technicianId !== technicianId || isSameDay(item.date, date)) return penalty;
+      if (item.technicianId !== technicianId || item.scheduleType !== type || isSameDay(item.date, date)) return penalty;
       const distance = Math.abs(Math.round((dateOnly(item.date).getTime() - dateOnly(date).getTime()) / 86400000));
-      if (distance === 1) return penalty + 10000;
-      if (distance === 2) return penalty + 5000;
+      if (distance === 1) return penalty + (type === DUTY_24H ? 10000 : 1000);
+      if (distance === 2) return penalty + (type === DUTY_24H ? 5000 : 250);
       return penalty;
     }, 0);
   }
 
-  function rankCandidates(date: Date) {
-    return [...participants].sort((a, b) => {
-      const unavailableA = isUnavailableOn(unavailabilities, a.id, date) ? 1 : 0;
-      const unavailableB = isUnavailableOn(unavailabilities, b.id, date) ? 1 : 0;
-      const scoreA = unavailableA * 10000000
-        + assignmentsForMonth(a.id, date) * 100000
-        + proximityPenalty(a.id, date)
-        + totalAssignments(a.id) * 10
-        + a.id;
-      const scoreB = unavailableB * 10000000
-        + assignmentsForMonth(b.id, date) * 100000
-        + proximityPenalty(b.id, date)
-        + totalAssignments(b.id) * 10
-        + b.id;
-      return scoreA - scoreB;
+  function sameDayOtherScalePenalty(technicianId: number, date: Date, type: ScheduleType) {
+    return assignments.some((item) => item.technicianId === technicianId && item.scheduleType !== type && isSameDay(item.date, date))
+      ? 5000000
+      : 0;
+  }
+
+  function rankCandidates(date: Date, type: ScheduleType) {
+    return eligibleFor(type).sort((a, b) => {
+      const score = (candidate: typeof a) => (
+        (isUnavailableOn(unavailabilities, candidate.id, date) ? 10000000 : 0)
+        + sameDayOtherScalePenalty(candidate.id, date, type)
+        + assignmentsForMonth(candidate.id, date, type) * 100000
+        + proximityPenalty(candidate.id, date, type)
+        + totalAssignments(candidate.id, type) * 10
+        + candidate.id
+      );
+      return score(a) - score(b);
     });
   }
 
+  const configurations: Array<{ type: ScheduleType; hours: number }> = [
+    { type: DUTY_24H, hours: 24 },
+    { type: ON_CALL, hours: 0 },
+  ];
+
   for (let date = dateOnly(from); date <= to; date = addDays(date, 1)) {
-    const locked = lockedMonths.has(monthKey(date));
-    const existing = assignments.find((item) => isSameDay(item.date, date));
-    const existingInvalid = existing
-      ? isUnavailableOn(unavailabilities, existing.technicianId, date)
-      : false;
+    for (const configuration of configurations) {
+      const locked = lockedMonths.has(monthKey(date));
+      const existing = assignments.find((item) => item.scheduleType === configuration.type && isSameDay(item.date, date));
+      const existingInvalid = existing ? isUnavailableOn(unavailabilities, existing.technicianId, date) : false;
 
-    // Em mês bloqueado, serviços publicados não são alterados automaticamente.
-    // Entretanto, qualquer lacuna é preenchida para manter cobertura diária.
-    if (existing && (!existingInvalid || locked)) continue;
+      if (existing && (!existingInvalid || locked)) continue;
 
-    const ranked = rankCandidates(date);
-    const preferred = ranked.find(
-      (candidate) => !isUnavailableOn(unavailabilities, candidate.id, date) && proximityPenalty(candidate.id, date) === 0,
-    ) ?? ranked.find((candidate) => !isUnavailableOn(unavailabilities, candidate.id, date))
-      ?? ranked[0];
+      const ranked = rankCandidates(date, configuration.type);
+      const preferred = ranked.find((candidate) => (
+        !isUnavailableOn(unavailabilities, candidate.id, date)
+        && sameDayOtherScalePenalty(candidate.id, date, configuration.type) === 0
+        && (configuration.type === ON_CALL || proximityPenalty(candidate.id, date, configuration.type) === 0)
+      )) ?? ranked.find((candidate) => !isUnavailableOn(unavailabilities, candidate.id, date)) ?? ranked[0];
 
-    if (!preferred) continue;
+      if (!preferred) continue;
+      const conflict = isUnavailableOn(unavailabilities, preferred.id, date);
+      const prefix = configuration.type === DUTY_24H ? "DUTY" : "ON_CALL";
 
-    const conflict = isUnavailableOn(unavailabilities, preferred.id, date);
-
-    if (existing) {
-      const updated = await prisma.assignment.update({
-        where: { id: existing.id },
-        data: {
-          technicianId: preferred.id,
-          origin: conflict ? "RECALCULATED_CONFLICT" : "RECALCULATED",
-        },
-      });
-      existing.technicianId = updated.technicianId;
-      existing.origin = updated.origin;
-    } else {
-      const created = await prisma.assignment.create({
-        data: {
-          date,
-          technicianId: preferred.id,
-          hours: 24,
-          origin: conflict
-            ? locked ? "BACKFILLED_CONFLICT" : "PROJECTED_CONFLICT"
-            : locked ? "BACKFILLED" : "PROJECTED",
-        },
-      });
-      assignments.push(created);
+      if (existing) {
+        const updated = await prisma.assignment.update({
+          where: { id: existing.id },
+          data: {
+            technicianId: preferred.id,
+            origin: conflict ? `${prefix}_RECALCULATED_CONFLICT` : `${prefix}_RECALCULATED`,
+          },
+        });
+        existing.technicianId = updated.technicianId;
+        existing.origin = updated.origin;
+      } else {
+        const created = await prisma.assignment.create({
+          data: {
+            date,
+            technicianId: preferred.id,
+            scheduleType: configuration.type,
+            hours: configuration.hours,
+            origin: conflict
+              ? locked ? `${prefix}_BACKFILLED_CONFLICT` : `${prefix}_PROJECTED_CONFLICT`
+              : locked ? `${prefix}_BACKFILLED` : `${prefix}_PROJECTED`,
+          },
+        });
+        assignments.push(created);
+      }
     }
   }
 }
@@ -235,12 +290,14 @@ export async function getDashboard(year = 2026, month = 7, months = 1) {
 
   await ensureProjectedSchedule(projectionFrom, projectionTo);
 
+  const technicianInclude = { groups: { include: { group: true }, orderBy: { isPrimary: "desc" as const } } };
+
   const [technicians, assignments, assignmentContext, unavailabilities, controls, adjustments] = await Promise.all([
-    prisma.technician.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.technician.findMany({ where: { active: true }, include: technicianInclude, orderBy: { name: "asc" } }),
     prisma.assignment.findMany({
       where: { date: { gte: from, lte: to } },
-      include: { technician: true },
-      orderBy: { date: "asc" },
+      include: { technician: { include: technicianInclude } },
+      orderBy: [{ date: "asc" }, { scheduleType: "asc" }],
     }),
     prisma.assignment.findMany({ where: { date: { gte: addDays(from, -2), lte: to } } }),
     prisma.unavailability.findMany({
@@ -283,12 +340,16 @@ export async function approveAndRecalculate(id: number) {
     where: { technicianId: item.technicianId, date: { gte: item.startDate, lte: item.endDate } },
   });
 
-  const candidates = await prisma.technician.findMany({
-    where: { active: true, participatesScale: true, id: { not: item.technicianId } },
-    include: { assignments: true, unavailabilities: { where: { status: "APPROVED", affectsScale: true } } },
-  });
-
   for (const assignment of affected) {
+    const candidates = await prisma.technician.findMany({
+      where: {
+        active: true,
+        id: { not: item.technicianId },
+        ...(assignment.scheduleType === DUTY_24H ? { participatesScale: true } : { participatesOnCall: true }),
+      },
+      include: { assignments: true, unavailabilities: { where: { status: "APPROVED", affectsScale: true } } },
+    });
+
     const ranked = [...candidates].sort((a, b) => {
       const unavailableA = a.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date) ? 1 : 0;
       const unavailableB = b.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date) ? 1 : 0;
@@ -297,15 +358,12 @@ export async function approveAndRecalculate(id: number) {
     const replacement = ranked[0];
     if (!replacement) continue;
 
-    const conflict = replacement.unavailabilities.some(
-      (u) => u.startDate <= assignment.date && u.endDate >= assignment.date,
-    );
-
+    const conflict = replacement.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date);
     await prisma.assignment.update({
       where: { id: assignment.id },
       data: {
         technicianId: replacement.id,
-        origin: conflict ? "RECALCULATED_CONFLICT" : "RECALCULATED",
+        origin: conflict ? `${assignment.scheduleType}_RECALCULATED_CONFLICT` : `${assignment.scheduleType}_RECALCULATED`,
       },
     });
   }
