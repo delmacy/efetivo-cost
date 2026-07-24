@@ -12,11 +12,12 @@ type Props = {
   defaultDate: string;
   roleLabel: string;
   summary: string;
+  groupLabels?: string[];
 };
 
 type ModalKind = "unavailability" | "office" | null;
 
-export function TechnicianActions({ technicianId, technicianName, profileHref, defaultDate, roleLabel, summary }: Props) {
+export function TechnicianActions({ technicianId, technicianName, profileHref, defaultDate, roleLabel, summary, groupLabels = [] }: Props) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -54,6 +55,7 @@ export function TechnicianActions({ technicianId, technicianName, profileHref, d
       <button className="technician-cell technician-trigger" type="button" onClick={() => setMenuOpen((value) => !value)} aria-expanded={menuOpen}>
         <strong>{technicianName}</strong>
         <span>{roleLabel}</span>
+        {groupLabels.length > 0 && <span className="technician-group-tags">{groupLabels.slice(0, 3).map((group) => <b key={group}>{group}</b>)}</span>}
         <small>{summary}</small>
         <i aria-hidden="true">⌄</i>
       </button>
@@ -97,7 +99,7 @@ export function TechnicianActions({ technicianId, technicianName, profileHref, d
                   <label>Início<input type="date" name="startDate" defaultValue={defaultDate} required /></label>
                   <label>Fim<input type="date" name="endDate" defaultValue={defaultDate} required /></label>
                   <label className="modal-reason">Motivo<input name="reason" placeholder="Ex.: férias, consulta ou afastamento" required /></label>
-                  <label className="check"><input type="checkbox" name="affectsScale" defaultChecked /> Afeta escala</label>
+                  <label className="check"><input type="checkbox" name="affectsScale" defaultChecked /> Afeta as escalas</label>
                   <label className="check"><input type="checkbox" name="affectsOffice" defaultChecked /> Afeta expediente</label>
                 </>
               )}
