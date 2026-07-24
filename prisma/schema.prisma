@@ -35,7 +35,7 @@ model MonthControl {
 
 model Assignment {
   id           Int        @id @default(autoincrement())
-  date         DateTime
+  date         DateTime   @unique
   hours        Int        @default(24)
   technicianId Int
   technician   Technician @relation(fields: [technicianId], references: [id], onDelete: Cascade)
@@ -43,7 +43,6 @@ model Assignment {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  @@index([date])
   @@index([technicianId, date])
 }
 
