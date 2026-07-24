@@ -112,8 +112,9 @@ async function ensureProjectedSchedule(from: Date, to: Date) {
   if (participants.length === 0) return;
 
   const controls = await ensureMonthControls(from, to);
-  const openMonths = new Set(controls.filter((item) => item.status === "OPEN").map((item) => `${item.year}-${item.month}`));
-  if (openMonths.size === 0) return;
+  const lockedMonths = new Set(
+    controls.filter((item) => item.status === "LOCKED").map((item) => `${item.year}-${item.month}`),
+  );
 
   const [unavailabilities, storedAssignments] = await Promise.all([
     prisma.unavailability.findMany({
@@ -155,34 +156,52 @@ async function ensureProjectedSchedule(from: Date, to: Date) {
     }, 0);
   }
 
-  for (let date = dateOnly(from); date <= to; date = addDays(date, 1)) {
-    if (!openMonths.has(monthKey(date))) continue;
+  function rankCandidates(date: Date) {
+    return [...participants].sort((a, b) => {
+      const unavailableA = isUnavailableOn(unavailabilities, a.id, date) ? 1 : 0;
+      const unavailableB = isUnavailableOn(unavailabilities, b.id, date) ? 1 : 0;
+      const scoreA = unavailableA * 10000000
+        + assignmentsForMonth(a.id, date) * 100000
+        + proximityPenalty(a.id, date)
+        + totalAssignments(a.id) * 10
+        + a.id;
+      const scoreB = unavailableB * 10000000
+        + assignmentsForMonth(b.id, date) * 100000
+        + proximityPenalty(b.id, date)
+        + totalAssignments(b.id) * 10
+        + b.id;
+      return scoreA - scoreB;
+    });
+  }
 
+  for (let date = dateOnly(from); date <= to; date = addDays(date, 1)) {
+    const locked = lockedMonths.has(monthKey(date));
     const existing = assignments.find((item) => isSameDay(item.date, date));
     const existingInvalid = existing
       ? isUnavailableOn(unavailabilities, existing.technicianId, date)
       : false;
 
-    if (existing && !existingInvalid) continue;
+    // Em mês bloqueado, serviços publicados não são alterados automaticamente.
+    // Entretanto, qualquer lacuna é preenchida para manter cobertura diária.
+    if (existing && (!existingInvalid || locked)) continue;
 
-    const available = participants.filter(
-      (candidate) => !isUnavailableOn(unavailabilities, candidate.id, date),
-    );
-    if (available.length === 0) continue;
+    const ranked = rankCandidates(date);
+    const preferred = ranked.find(
+      (candidate) => !isUnavailableOn(unavailabilities, candidate.id, date) && proximityPenalty(candidate.id, date) === 0,
+    ) ?? ranked.find((candidate) => !isUnavailableOn(unavailabilities, candidate.id, date))
+      ?? ranked[0];
 
-    const ranked = [...available].sort((a, b) => {
-      const scoreA = assignmentsForMonth(a.id, date) * 100000 + proximityPenalty(a.id, date) + totalAssignments(a.id) * 10 + a.id;
-      const scoreB = assignmentsForMonth(b.id, date) * 100000 + proximityPenalty(b.id, date) + totalAssignments(b.id) * 10 + b.id;
-      return scoreA - scoreB;
-    });
-
-    const preferred = ranked.find((candidate) => proximityPenalty(candidate.id, date) === 0) ?? ranked[0];
     if (!preferred) continue;
+
+    const conflict = isUnavailableOn(unavailabilities, preferred.id, date);
 
     if (existing) {
       const updated = await prisma.assignment.update({
         where: { id: existing.id },
-        data: { technicianId: preferred.id, origin: "RECALCULATED" },
+        data: {
+          technicianId: preferred.id,
+          origin: conflict ? "RECALCULATED_CONFLICT" : "RECALCULATED",
+        },
       });
       existing.technicianId = updated.technicianId;
       existing.origin = updated.origin;
@@ -192,7 +211,9 @@ async function ensureProjectedSchedule(from: Date, to: Date) {
           date,
           technicianId: preferred.id,
           hours: 24,
-          origin: "PROJECTED",
+          origin: conflict
+            ? locked ? "BACKFILLED_CONFLICT" : "PROJECTED_CONFLICT"
+            : locked ? "BACKFILLED" : "PROJECTED",
         },
       });
       assignments.push(created);
@@ -207,7 +228,7 @@ export async function getDashboard(year = 2026, month = 7, months = 1) {
   const to = endOfMonth(lastMonth.getFullYear(), lastMonth.getMonth() + 1);
 
   const today = new Date();
-  const rollingProjectionFrom = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const rollingProjectionFrom = new Date(today.getFullYear(), today.getMonth(), 1);
   const rollingProjectionTo = endOfMonth(today.getFullYear(), today.getMonth() + 13);
   const projectionFrom = from < rollingProjectionFrom ? from : rollingProjectionFrom;
   const projectionTo = to > rollingProjectionTo ? to : rollingProjectionTo;
@@ -264,19 +285,29 @@ export async function approveAndRecalculate(id: number) {
 
   const candidates = await prisma.technician.findMany({
     where: { active: true, participatesScale: true, id: { not: item.technicianId } },
-    include: { assignments: true, unavailabilities: { where: { status: "APPROVED" } } },
+    include: { assignments: true, unavailabilities: { where: { status: "APPROVED", affectsScale: true } } },
   });
 
   for (const assignment of affected) {
-    const available = candidates
-      .filter((candidate) => !candidate.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date))
-      .sort((a, b) => a.assignments.length - b.assignments.length)[0];
-    if (available) {
-      await prisma.assignment.update({
-        where: { id: assignment.id },
-        data: { technicianId: available.id, origin: "RECALCULATED" },
-      });
-    }
+    const ranked = [...candidates].sort((a, b) => {
+      const unavailableA = a.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date) ? 1 : 0;
+      const unavailableB = b.unavailabilities.some((u) => u.startDate <= assignment.date && u.endDate >= assignment.date) ? 1 : 0;
+      return unavailableA - unavailableB || a.assignments.length - b.assignments.length || a.id - b.id;
+    });
+    const replacement = ranked[0];
+    if (!replacement) continue;
+
+    const conflict = replacement.unavailabilities.some(
+      (u) => u.startDate <= assignment.date && u.endDate >= assignment.date,
+    );
+
+    await prisma.assignment.update({
+      where: { id: assignment.id },
+      data: {
+        technicianId: replacement.id,
+        origin: conflict ? "RECALCULATED_CONFLICT" : "RECALCULATED",
+      },
+    });
   }
 
   await prisma.unavailability.update({
