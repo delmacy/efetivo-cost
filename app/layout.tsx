@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./forms.css";
+import "./calendar-extra.css";
 
 export const metadata: Metadata = {
   title: "Efetivo COST",
