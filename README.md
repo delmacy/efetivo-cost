@@ -1,27 +1,29 @@
 # Efetivo COST
 
-Primeira versão funcional do planejamento de escala e expediente alternado.
+Sistema em Next.js, Prisma e SQLite para planejamento operacional de técnicos.
 
-## Executar localmente
+## Funcionalidades atuais
+
+- timeline mensal, trimestral e anual;
+- escala diária de serviço de 24 horas;
+- escala provisória de sobreaviso;
+- expediente previsto em ciclo dia sim, dia não;
+- bloqueio de expediente em fins de semana, feriados, serviço 24h, saída e descanso;
+- indisponibilidades com aprovação após o bloqueio mensal;
+- agenda agrupada por data;
+- cadastro e ficha individual de técnicos;
+- grupos de especialidade, como telefonia, redes e energia;
+- projeção automática das escalas futuras;
+- SQLite criado e atualizado automaticamente pelo Prisma.
+
+## Execução
 
 ```bash
 npm install
 npm run dev
 ```
 
-O comando cria automaticamente o banco SQLite em `prisma/dev.db`, prepara as tabelas e inicia o Next.js em `http://localhost:3000`.
-
-## Funcionalidades atuais
-
-- timeline mensal responsiva;
-- expediente dia sim/dia não calculado por técnico;
-- serviços de escala persistidos no SQLite;
-- formulário de indisponibilidade;
-- indisponibilidade pendente quando o mês está bloqueado;
-- aprovação e rejeição pelo escalante;
-- recálculo básico dos serviços afetados;
-- incremento da versão da escala após recálculo;
-- view específica para celular.
+O sistema estará disponível em `http://localhost:3000`.
 
 ## Banco de dados
 
@@ -29,4 +31,4 @@ O comando cria automaticamente o banco SQLite em `prisma/dev.db`, prepara as tab
 npm run db:studio
 ```
 
-Abre o Prisma Studio para visualizar e editar os registros do SQLite.
+O banco local fica em `prisma/dev.db`.
