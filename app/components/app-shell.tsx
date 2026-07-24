@@ -7,7 +7,7 @@ import { useState } from "react";
 const navigation = [
   { href: "/", label: "Painel", icon: "▦" },
   { href: "/tecnicos", label: "Técnicos", icon: "👥" },
-  { href: "/#ocupacoes", label: "Ocupações", icon: "☷" },
+  { href: "/grupos", label: "Grupos", icon: "#" },
   { href: "/#pendencias", label: "Pendências", icon: "!" },
 ];
 
@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="sidebar-help-icon">i</span>
           <div>
             <strong>Escala viva</strong>
-            <small>Previsão, bloqueios e ajustes em um só lugar.</small>
+            <small>24h, sobreaviso, expediente e especialidades.</small>
           </div>
         </div>
       </aside>
