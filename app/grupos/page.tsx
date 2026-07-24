@@ -12,7 +12,7 @@ export default async function GroupsPage() {
     include: {
       members: {
         include: { technician: true },
-        orderBy: [{ isPrimary: "desc" }, { technician: { name: "asc" } }],
+        orderBy: { isPrimary: "desc" },
       },
     },
     orderBy: { name: "asc" },
@@ -34,21 +34,24 @@ export default async function GroupsPage() {
       </section>
 
       <section className="group-grid">
-        {groups.map((group) => (
-          <article className="group-card" key={group.id}>
-            <header><div><span>Especialidade</span><h2>{group.name}</h2></div><strong>{group.members.length}</strong></header>
-            <div className="group-members">
-              {group.members.length === 0
-                ? <span className="group-empty">Nenhum técnico vinculado.</span>
-                : group.members.map((membership) => (
-                  <Link href={`/tecnicos/${membership.technicianId}`} key={membership.technicianId}>
-                    <span>{membership.technician.name}</span>
-                    {membership.isPrimary && <small>Principal</small>}
-                  </Link>
-                ))}
-            </div>
-          </article>
-        ))}
+        {groups.map((group) => {
+          const members = [...group.members].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.technician.name.localeCompare(b.technician.name, "pt-BR"));
+          return (
+            <article className="group-card" key={group.id}>
+              <header><div><span>Especialidade</span><h2>{group.name}</h2></div><strong>{members.length}</strong></header>
+              <div className="group-members">
+                {members.length === 0
+                  ? <span className="group-empty">Nenhum técnico vinculado.</span>
+                  : members.map((membership) => (
+                    <Link href={`/tecnicos/${membership.technicianId}`} key={membership.technicianId}>
+                      <span>{membership.technician.name}</span>
+                      {membership.isPrimary && <small>Principal</small>}
+                    </Link>
+                  ))}
+              </div>
+            </article>
+          );
+        })}
       </section>
     </main>
   );
